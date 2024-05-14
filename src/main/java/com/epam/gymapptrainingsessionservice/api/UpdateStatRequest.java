@@ -11,7 +11,9 @@ public class UpdateStatRequest {
     @NotNull
     private Integer trainerId;
     @NotNull
-    private Date trainingDate;
+    private Integer year;
+    @NotNull
+    private Integer month;
     @NotNull
     private Integer duration;
     @NotNull

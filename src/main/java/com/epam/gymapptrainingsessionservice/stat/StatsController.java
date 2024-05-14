@@ -7,14 +7,13 @@ import com.epam.gymapptrainingsessionservice.api.UpdateStatRequest;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
 import java.time.format.TextStyle;
@@ -27,15 +26,16 @@ public class StatsController {
     @Autowired
     private StatsService statsService;
 
-    @GetMapping("/api/v1/trainer-full-stats")
+    @GetMapping("/stats-api/v1/trainer-full-stats")
     @Operation(summary = "Get full stats for trainer")
     @ApiResponses(value = {
             @ApiResponse(responseCode = "200", description = "Trainer full stats retrieved successfully")
     })
     public ResponseEntity<Map<Integer, List<Map<String, Integer>>>> getTrainerFullStats(
-            @Valid @RequestBody FullStatRequest fullStatRequest
+            @Valid @RequestBody FullStatRequest fullStatRequest,
+            @RequestHeader(name = "gym-app-correlation-id", required = false, defaultValue = "no-correlation-id") String correlationId
     ) {
-        log.info("\n\n ------- in controller: trainer-full-stats ----------------- \n\n ");
+        log.info("\n\nstats ms -> stats update controller -> get full stat ->  correlationId: {}\n\n", correlationId);
         Integer trainerId = fullStatRequest.getTrainerId();
         List<Stat> fullStatsOfTrainer = statsService.getStatByTrainerId(trainerId);
 
@@ -43,63 +43,49 @@ public class StatsController {
 
         for (Stat stat : fullStatsOfTrainer) {
             updateResponseMap(stat, responseMap);
-            //            int year = stat.getYear();
-            //            Integer monthInt = stat.getMonth();
-            //            String monthString = convertMonthIntToMonthString(monthInt);
-            //            int minutes = stat.getMinutesMonthlyTotal();
-            //            responseMap.putIfAbsent(year, new ArrayList<>());
-            //            List<Map<String, Integer>> yearStats = responseMap.get(year);
-            //            Map<String, Integer> monthMinutesPair = new HashMap<>();
-            //            monthMinutesPair.put(monthString, minutes);
-            //            yearStats.add(monthMinutesPair);
         }
 
         return ResponseEntity.ok(responseMap);
     }
 
-    @GetMapping("/api/v1/trainer-monthly-stats")
+    @GetMapping("/stats-api/v1/trainer-monthly-stats")
     @Operation(summary = "Get Trainer stats (total minutes of training sessions) for a given month")
     @ApiResponses(value = {
             @ApiResponse(responseCode = "200", description = "Trainer stats for a given month retrieved successfully"),
-            @ApiResponse(responseCode = "404", description = "Trainer stats not found for the given month")
     })
-    public ResponseEntity<Integer> getTrainerMonthlyStats(
-            @Valid @RequestBody MonthlyStatRequest monthlyStatRequest
+    public ResponseEntity<Map<String, Integer>> getTrainerMonthlyStats(
+            @Valid @RequestBody MonthlyStatRequest monthlyStatRequest,
+            @RequestHeader(name = "gym-app-correlation-id", required = false, defaultValue = "no-correlation-id") String correlationId
     ) {
-        log.info("\n\n ------- in controller: trainer-monthly-stats ----------------- \n\n ");
+        log.info("\n\nstats ms -> stats update controller->get monthly stat ->  correlationId: {}\n\n", correlationId);
+
         Integer trainerId = monthlyStatRequest.getTrainerId();
         Integer year = monthlyStatRequest.getYear();
         Integer month = monthlyStatRequest.getMonth();
-        Optional<Stat> statOptional = statsService.getByTrainerIdAndYearAndMonth(trainerId, year, month);
-        if (statOptional.isPresent()) {
-            return ResponseEntity.ok(statOptional.get().getMinutesMonthlyTotal());
-        } else {
-            return ResponseEntity.notFound().build();
-        }
+        Map<String, Integer> response = getMonthlyStatResponse(trainerId, year, month);
+        return ResponseEntity.ok(response);
     }
 
-    @PostMapping("/api/v1/trainer-stats-update")
+    @PostMapping("/stats-api/v1/trainer-stats-update")
     @Operation(summary = "update/create trainer stats for a given month")
     @ApiResponses(value = {
             @ApiResponse(responseCode = "200", description = "Trainer stats updated successfully"),
             @ApiResponse(responseCode = "201", description = "Trainer stats created successfully")
     })
-    public ResponseEntity<Void> updateTrainerStats(
-            @Valid @RequestBody UpdateStatRequest updateStatRequest
+    public ResponseEntity<Map<String, Integer>> updateTrainerStats(
+            @Valid @RequestBody UpdateStatRequest updateStatRequest,
+            @RequestHeader(name = "gym-app-correlation-id", required = false, defaultValue = "no-correlation-id") String correlationId
     ) {
+        //        logRequestHeaders(request);
 
-        log.info("\n\n ------- in controller: trainer-stats-update ----------------- \n\n ");
-        //        Integer trainerId = updateStatRequest.getTrainerId();
-        //        Date date = updateStatRequest.getTrainingDate();
-        //        Calendar calendar = Calendar.getInstance();
-        //        calendar.setTime(date);
-        //        Integer year = calendar.get(Calendar.YEAR);
-        //        Integer month = calendar.get(Calendar.MONTH) + 1;
-        //        Optional<Stat> statOptional = statsService.getByTrainerIdAndYearAndMonth(trainerId, year, month);
+        log.info("\n\nstats ms -> stats update controller -> update stat ->  correlationId: {}\n\n", correlationId);
         Optional<Stat> statOptional = getStatOptional(updateStatRequest);
 
         boolean actionTypeIsAdd = updateStatRequest.getActionType() == ActionType.ADD;
         Integer minutes = updateStatRequest.getDuration();
+        Integer trainerId = updateStatRequest.getTrainerId();
+        Integer year = updateStatRequest.getYear();
+        Integer month = updateStatRequest.getMonth();
         log.info("updating stats");
 
         if (statOptional.isPresent()) {
@@ -114,13 +100,34 @@ public class StatsController {
 
             stat.setMinutesMonthlyTotal(newMinutes);
             statsService.updateStat(stat);
-            return ResponseEntity.ok().build();
+            Map<String, Integer> response = getMonthlyStatResponse(trainerId, year, month);
+            //            return ResponseEntity.ok().build();
+            return ResponseEntity.status(HttpStatus.OK).body(response);
         }
 
         Stat stat = getStat(updateStatRequest);
         statsService.createStat(stat);
+        Map<String, Integer> response = getMonthlyStatResponse(trainerId, year, month);
 
-        return ResponseEntity.ok().build();
+        //        return ResponseEntity.status(HttpStatus.CREATED).build();
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    private void logRequestHeaders(HttpServletRequest request) {
+        Enumeration<String> headerNames = request.getHeaderNames();
+        while (headerNames.hasMoreElements()) {
+            String headerName = headerNames.nextElement();
+            String headerValue = request.getHeader(headerName);
+            log.info("Request Header: {} = {}", headerName, headerValue);
+        }
+    }
+
+    private Map<String, Integer> getMonthlyStatResponse(Integer trainerId, Integer year, Integer month) {
+        Optional<Stat> statOptional = statsService.getByTrainerIdAndYearAndMonth(trainerId, year, month);
+        int result = statOptional.map(Stat::getMinutesMonthlyTotal).orElse(0);
+        Map<String, Integer> response = new HashMap<>();
+        response.put("minutes", result);
+        return response;
     }
 
     private void updateResponseMap(Stat stat, Map<Integer, List<Map<String, Integer>>> responseMap) {
@@ -132,8 +139,8 @@ public class StatsController {
         List<Map<String, Integer>> yearStats = responseMap.get(year);
         Map<String, Integer> monthMinutesPair = new HashMap<>();
         monthMinutesPair.put(monthString, minutes);
-        log.info("\n\n -------year: {}, month: {}, minutes {} ---- in updateResponseMap----- \n\n ", year, monthString,
-                 minutes);
+        log.info("\n\n -------year: {}, month: {}, minutes {} ---- in updateResponseMap----- \n\n ",
+                 year, monthString, minutes);
         yearStats.add(monthMinutesPair);
     }
 
@@ -144,22 +151,22 @@ public class StatsController {
 
     private Optional<Stat> getStatOptional(UpdateStatRequest updateStatRequest) {
         Integer trainerId = updateStatRequest.getTrainerId();
-        Date date = updateStatRequest.getTrainingDate();
-        Calendar calendar = Calendar.getInstance();
-        calendar.setTime(date);
-        Integer year = calendar.get(Calendar.YEAR);
-        Integer month = calendar.get(Calendar.MONTH) + 1;
+        Integer year = updateStatRequest.getYear();
+        Integer month = updateStatRequest.getMonth();
         return statsService.getByTrainerIdAndYearAndMonth(trainerId, year, month);
     }
 
     private Stat getStat(UpdateStatRequest updateStatRequest) {
         Stat stat = new Stat();
         Integer trainerId = updateStatRequest.getTrainerId();
-        Date date = updateStatRequest.getTrainingDate();
-        Calendar calendar = Calendar.getInstance();
-        calendar.setTime(date);
-        Integer year = calendar.get(Calendar.YEAR);
-        Integer month = calendar.get(Calendar.MONTH) + 1;
+        //       // this is how I would be getting year and month from Date
+        //        Date date = updateStatRequest.getTrainingDate();
+        //        Calendar calendar = Calendar.getInstance();
+        //        calendar.setTime(date);
+        //        Integer year = calendar.get(Calendar.YEAR);
+        //        Integer month = calendar.get(Calendar.MONTH) + 1;
+        Integer year = updateStatRequest.getYear();
+        Integer month = updateStatRequest.getMonth();
         stat.setTrainerId(trainerId);
         stat.setYear(year);
         stat.setMonth(month);
