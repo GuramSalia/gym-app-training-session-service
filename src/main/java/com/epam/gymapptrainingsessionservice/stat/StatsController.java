@@ -1,9 +1,8 @@
 package com.epam.gymapptrainingsessionservice.stat;
 
-import com.epam.gymapptrainingsessionservice.api.ActionType;
-import com.epam.gymapptrainingsessionservice.api.FullStatRequest;
-import com.epam.gymapptrainingsessionservice.api.MonthlyStatRequest;
-import com.epam.gymapptrainingsessionservice.api.UpdateStatRequest;
+import com.epam.gymapptrainingsessionservice.api.*;
+import com.epam.gymapptrainingsessionservice.exception.InvalidTokenException;
+import com.epam.gymapptrainingsessionservice.proxy.TokenValidationProxy;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
@@ -23,8 +22,15 @@ import java.util.*;
 @RestController()
 public class StatsController {
 
+
+    private final StatsService statsService;
+    private final TokenValidationProxy proxy;
+
     @Autowired
-    private StatsService statsService;
+    public StatsController(StatsService statsService, TokenValidationProxy proxy) {
+        this.statsService = statsService;
+        this.proxy = proxy;
+    }
 
     @GetMapping("/stats-api/v1/trainer-full-stats")
     @Operation(summary = "Get full stats for trainer")
@@ -36,6 +42,10 @@ public class StatsController {
             @RequestHeader(name = "gym-app-correlation-id", required = false, defaultValue = "no-correlation-id") String correlationId
     ) {
         log.info("\n\nstats ms -> stats update controller -> get full stat ->  correlationId: {}\n\n", correlationId);
+
+        String jwtToken = fullStatRequest.getToken();
+        validateJwtToken(jwtToken);
+
         Integer trainerId = fullStatRequest.getTrainerId();
         List<Stat> fullStatsOfTrainer = statsService.getStatByTrainerId(trainerId);
 
@@ -59,6 +69,9 @@ public class StatsController {
     ) {
         log.info("\n\nstats ms -> stats update controller->get monthly stat ->  correlationId: {}\n\n", correlationId);
 
+        String jwtToken = monthlyStatRequest.getToken();
+        validateJwtToken(jwtToken);
+
         Integer trainerId = monthlyStatRequest.getTrainerId();
         Integer year = monthlyStatRequest.getYear();
         Integer month = monthlyStatRequest.getMonth();
@@ -76,9 +89,13 @@ public class StatsController {
             @Valid @RequestBody UpdateStatRequest updateStatRequest,
             @RequestHeader(name = "gym-app-correlation-id", required = false, defaultValue = "no-correlation-id") String correlationId
     ) {
-        //        logRequestHeaders(request);
+
 
         log.info("\n\nstats ms -> stats update controller -> update stat ->  correlationId: {}\n\n", correlationId);
+
+        String jwtToken = updateStatRequest.getToken();
+        validateJwtToken(jwtToken);
+
         Optional<Stat> statOptional = getStatOptional(updateStatRequest);
 
         boolean actionTypeIsAdd = updateStatRequest.getActionType() == ActionType.ADD;
@@ -101,7 +118,7 @@ public class StatsController {
             stat.setMinutesMonthlyTotal(newMinutes);
             statsService.updateStat(stat);
             Map<String, Integer> response = getMonthlyStatResponse(trainerId, year, month);
-            //            return ResponseEntity.ok().build();
+
             return ResponseEntity.status(HttpStatus.OK).body(response);
         }
 
@@ -109,7 +126,7 @@ public class StatsController {
         statsService.createStat(stat);
         Map<String, Integer> response = getMonthlyStatResponse(trainerId, year, month);
 
-        //        return ResponseEntity.status(HttpStatus.CREATED).build();
+
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
@@ -159,12 +176,6 @@ public class StatsController {
     private Stat getStat(UpdateStatRequest updateStatRequest) {
         Stat stat = new Stat();
         Integer trainerId = updateStatRequest.getTrainerId();
-        //       // this is how I would be getting year and month from Date
-        //        Date date = updateStatRequest.getTrainingDate();
-        //        Calendar calendar = Calendar.getInstance();
-        //        calendar.setTime(date);
-        //        Integer year = calendar.get(Calendar.YEAR);
-        //        Integer month = calendar.get(Calendar.MONTH) + 1;
         Integer year = updateStatRequest.getYear();
         Integer month = updateStatRequest.getMonth();
         stat.setTrainerId(trainerId);
@@ -172,5 +183,18 @@ public class StatsController {
         stat.setMonth(month);
         stat.setMinutesMonthlyTotal(updateStatRequest.getDuration());
         return stat;
+    }
+
+    private void validateJwtToken(String jwtToken) {
+        log.info("\n\nstats ms -> stats update controller -> validate jwt token -> jwtToken: {}\n\n", jwtToken);
+        TokenValidationRequest tokenValidationRequest = new TokenValidationRequest();
+        tokenValidationRequest.setToken(jwtToken);
+        log.info("\n\n TOKENVALIDATIONREQUESTt: {}\n\n", tokenValidationRequest);
+        ResponseEntity<TokenValidationResponse> responseEntity = proxy.validateToken(tokenValidationRequest, "no-correlation-id");
+        log.info("\n\nstats ms -> stats update controller -> validate jwt token -> responseEntity: {}\n\n", responseEntity);
+        if (!responseEntity.getStatusCode().is2xxSuccessful()) {
+            throw new InvalidTokenException("could not validate the jwt token");
+        }
+
     }
 }
