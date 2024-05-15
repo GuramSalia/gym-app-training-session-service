@@ -189,7 +189,7 @@ public class StatsController {
         log.info("\n\nstats ms -> stats update controller -> validate jwt token -> jwtToken: {}\n\n", jwtToken);
         TokenValidationRequest tokenValidationRequest = new TokenValidationRequest();
         tokenValidationRequest.setToken(jwtToken);
-        log.info("\n\n TOKENVALIDATIONREQUESTt: {}\n\n", tokenValidationRequest);
+        log.info("\n\n tokenValidationRequest: {}\n\n", tokenValidationRequest);
         ResponseEntity<TokenValidationResponse> responseEntity = proxy.validateToken(tokenValidationRequest, "no-correlation-id");
         log.info("\n\nstats ms -> stats update controller -> validate jwt token -> responseEntity: {}\n\n", responseEntity);
         if (!responseEntity.getStatusCode().is2xxSuccessful()) {
